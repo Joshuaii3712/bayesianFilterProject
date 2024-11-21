@@ -1,0 +1,7 @@
+My Classes
+1. [101] C [credit 3 - A+~F]
+2. [102] CodingStudio [credit 1 - P/F]
+3. [103] PythonLearning [credit 3 - P/F]
+4. [111] Korean [credit 3 - A+~F]
+5. [401] Capstone2 [credit 4 - A+~F]
+All : 5 classes, 14 credits (A+~F 10, P/F 4 credits)
