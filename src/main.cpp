@@ -1,4 +1,3 @@
-#include "tree.h"
 #include <iostream>
 #include <sstream>
 #include <fstream>
@@ -7,6 +6,8 @@
 #include <string>
 #include <cctype>
 #include <algorithm>
+#include <cmath>
+#include <iomanip>
 
 using namespace std;
 
@@ -41,6 +42,8 @@ public:
 
 
     void calculateProbabilities(int totalSpam, int totalHam) {
+        if(spamMails == 0) spamMails = 1; //Apply Laplace Smoothing to avoid that p results in 0;
+        if(hamMails == 0) hamMails = 1;
         pSpam = static_cast<float>(spamMails) / totalSpam;
         pHam = static_cast<float>(hamMails) / totalHam;
 
@@ -176,7 +179,7 @@ public:
 class FilterManager {
     public: 
     struct TargetMail {
-        string num; //number of target email (1~20)
+        string num; //number of target email (101~120)
         string status; // whether it is spam or ham
         string content; // content of the email
         double rOfMail; // the final probability of mails which determines whether the mail is spam or ham
@@ -203,6 +206,7 @@ class FilterManager {
             if (!line.empty() && line.back() == '"' && line.find("\"\"") == string::npos) {
                 isReadingContent = false;
                 currentMail.content = currentText.substr(1, currentText.size() - 2); // Strip surrounding quotes
+                //cout << currentMail.num << "\t" << currentMail.status << "\n" << currentMail.content << endl;
                 targetMails.push_back(currentMail);
                 count++;
                 currentText.clear();
@@ -217,14 +221,9 @@ class FilterManager {
             if (!getline(ss, status, ',')) continue;
             if (!getline(ss, content)) continue;
 
-        // Parse number
-        try {
-            currentMail.num = stoi(num);
-        } catch (...) {
-            throw runtime_error("Invalid number format: " + num);
-        }
-
-        currentMail.status = status;
+        
+           currentMail.num = num;
+           currentMail.status = status;
 
         // Check if the content spans multiple lines
         if (content.front() == '"' && content.back() != '"') {
@@ -239,7 +238,6 @@ class FilterManager {
         } else {
             currentMail.content = content;
         }
-
         targetMails.push_back(currentMail);
         count++;
     }
@@ -263,11 +261,11 @@ class FilterManager {
             cout << "Map pointer is null." << endl;
             return 0;
         }
-
+        double maxVal, expSpam, expHam;
         int count = 0;
         for (auto& mail : targetMails) {
-            double totalPSpam = 1.0;
-            double totalPHam = 1.0;
+            long double totalPSpam = 1.0; //get total multipicaltion of pSpam by adding the log of each, and convert the result with exp()
+            long double totalPHam = 1.0;
             istringstream stream(mail.content);
             string word;
             count ++;
@@ -280,11 +278,15 @@ class FilterManager {
 
                 //check if the word is in the wordList that we make for filter, if exist, get the pSpam and pHam value and multiply it to the total value;
                 if (wordListPtr->find(word) != wordListPtr->end()){
-                    totalPSpam *= (*wordListPtr)[word].getPSpam();
+                    totalPSpam *= (*wordListPtr)[word].getPSpam(); 
                     totalPHam *= (*wordListPtr)[word].getPHam();
+                    //cout << (*wordListPtr)[word].getPSpam() << "\t" << (*wordListPtr)[word].getPHam() << endl;
                 } 
             }   
+            //cout << totalPSpam << "\t" << totalPHam << endl;
+            //maxVal = max()
             mail.rOfMail = totalPSpam /(totalPSpam + totalPHam);
+           // cout << mail.rOfMail << endl;
         }
         return count;
     }
@@ -307,7 +309,7 @@ class FilterManager {
                 isSuccess = "Fail";
             }
             count++;
-            cout << mail.num << "\t" <<  mail.status << "\t" << threshold << "\t" << mail.rOfMail << "\t" << isSpam << "\t" << isSuccess << endl;
+            cout << mail.num << setw(12) <<  mail.status << setw(10) << threshold << setw(20) << mail.rOfMail << setw(15) << isSpam << setw(15) << isSuccess << endl;
             
         }
 
@@ -356,8 +358,9 @@ int main() {
         if(quit == 0) break;
     }
     
+
+    cout << exp(log(0.6) + log(0.1)) << endl;
     cout << "Good bye!" << endl;
 
 	return 0;
 }
-
