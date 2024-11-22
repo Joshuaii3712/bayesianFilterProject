@@ -36,6 +36,9 @@ public:
     int getHamMails() {return hamMails; }
     void setCheck(int emailNo) {check = emailNo; }
     int getCheck() {return check; }
+    float getPSpam() { return pSpam; }
+    float getPHam() { return pHam; }
+
 
     void calculateProbabilities(int totalSpam, int totalHam) {
         pSpam = static_cast<float>(spamMails) / totalSpam;
@@ -56,27 +59,70 @@ public:
 
     map<string, Word> wordList;
 
+    map<string, Word>* getMapAddress() { return &wordList; }
+
     int readEmailFile(string filename){ //return the amount of mails read
         ifstream file(filename);
         if(!file.is_open()) {
             cerr << "Error opening file!" << endl;
             return 0;
         }
-        string line;
+        string line, currentText;
+        Mail currentMail;
+        bool isReadingContent = false;
         int count = 0;
         getline(file, line); // skipping the first line
 
         while(getline(file, line)) {
+            if(isReadingContent) {
+                currentText += " " + line;
+
+            if (!line.empty() && line.back() == '"' && line.find("\"\"") == string::npos) {
+                isReadingContent = false;
+                currentMail.content = currentText.substr(1, currentText.size() - 2); // Strip surrounding quotes
+                mails.push_back(currentMail);
+                count++;
+                currentText.clear();
+            }
+            continue;
+        }
+
+
             stringstream ss(line);
             string num, status, content;
 
-            getline(ss, num, ',');
-            getline(ss, status, ',');
-            getline(ss, content, ',');
-            count++;
-            mails.push_back({num, status, content});
+            if (!getline(ss, num, ',')) continue;
+            if (!getline(ss, status, ',')) continue;
+            if (!getline(ss, content)) continue;
+
+        // Parse number
+        try {
+            currentMail.num = stoi(num);
+        } catch (...) {
+            throw runtime_error("Invalid number format: " + num);
         }
-        file.close();
+
+        currentMail.status = status;
+
+        // Check if the content spans multiple lines
+        if (content.front() == '"' && content.back() != '"') {
+            isReadingContent = true;
+            currentText = content;
+            continue;
+        }
+
+        // Single-line content
+        if (content.front() == '"' && content.back() == '"') {
+            currentMail.content = content.substr(1, content.size() - 2); // Strip surrounding quotes
+        } else {
+            currentMail.content = content;
+        }
+
+        mails.push_back(currentMail);
+        count++;
+    }
+
+    file.close();
         return count;
     }
 
@@ -113,25 +159,205 @@ public:
         return count;
     }
     
+    void calculateProbabilities(int totalSpam, int totalHam) {
+        for (auto& pair : wordList) {
+            pair.second.calculateProbabilities(totalSpam, totalHam);
+        }
+    }
+
     void printAllWords() {
         for (const auto& pair : wordList) {
-            cout << pair.first << "\t" << endl;
+            cout << pair.first << "|" << pair.second.spamMails << "|" << pair.second.hamMails << "|" << pair.second.pSpam << "|" << pair.second.pHam << endl;
         }
     }
 
 };
 
+class FilterManager {
+    public: 
+    struct TargetMail {
+        string num; //number of target email (1~20)
+        string status; // whether it is spam or ham
+        string content; // content of the email
+        double rOfMail; // the final probability of mails which determines whether the mail is spam or ham
+    };
+
+    vector<TargetMail> targetMails;
+    
+    int readTargetMails(string filename){ //return the amount of mails read
+        ifstream file(filename);
+        if(!file.is_open()) {
+            cerr << "Error opening file!" << endl;
+            return 0;
+        }
+        string line, currentText;
+        TargetMail currentMail;
+        bool isReadingContent = false;
+        int count = 0;
+        getline(file, line); // skipping the first line
+
+        while(getline(file, line)) {
+            if(isReadingContent) {
+                currentText += " " + line;
+
+            if (!line.empty() && line.back() == '"' && line.find("\"\"") == string::npos) {
+                isReadingContent = false;
+                currentMail.content = currentText.substr(1, currentText.size() - 2); // Strip surrounding quotes
+                targetMails.push_back(currentMail);
+                count++;
+                currentText.clear();
+            }
+            continue;
+            }
+
+            stringstream ss(line);
+            string num, status, content;
+
+            if (!getline(ss, num, ',')) continue;
+            if (!getline(ss, status, ',')) continue;
+            if (!getline(ss, content)) continue;
+
+        // Parse number
+        try {
+            currentMail.num = stoi(num);
+        } catch (...) {
+            throw runtime_error("Invalid number format: " + num);
+        }
+
+        currentMail.status = status;
+
+        // Check if the content spans multiple lines
+        if (content.front() == '"' && content.back() != '"') {
+            isReadingContent = true;
+            currentText = content;
+            continue;
+        }
+
+        // Single-line content
+        if (content.front() == '"' && content.back() == '"') {
+            currentMail.content = content.substr(1, content.size() - 2); // Strip surrounding quotes
+        } else {
+            currentMail.content = content;
+        }
+
+        targetMails.push_back(currentMail);
+        count++;
+    }
+
+    file.close();
+        return count;
+    }
+
+    double receiveThreshold() {
+        double t;
+        printf("Please input the threshold(decimal between 0 to 1) >>");
+        cin >> t;
+        return t;
+    }
+
+    
+    bool checkIfPunctuation(char c) { return ispunct(c); }
+
+    int filterMails(map<string, Word>* wordListPtr){
+        if (wordListPtr == nullptr) {
+            cout << "Map pointer is null." << endl;
+            return 0;
+        }
+
+        int count = 0;
+        for (auto& mail : targetMails) {
+            double totalPSpam = 1.0;
+            double totalPHam = 1.0;
+            istringstream stream(mail.content);
+            string word;
+            count ++;
+            while(stream >> word) {
+                //removing punctuations
+                word.erase(remove_if(word.begin(), word.end(), [this](char c) { return this->checkIfPunctuation(c); }), word.end());
+                
+                //changing into lowercase
+                transform(word.begin(), word.end(), word.begin(), ::tolower);
+
+                //check if the word is in the wordList that we make for filter, if exist, get the pSpam and pHam value and multiply it to the total value;
+                if (wordListPtr->find(word) != wordListPtr->end()){
+                    totalPSpam *= (*wordListPtr)[word].getPSpam();
+                    totalPHam *= (*wordListPtr)[word].getPHam();
+                } 
+            }   
+            mail.rOfMail = totalPSpam /(totalPSpam + totalPHam);
+        }
+        return count;
+    }
+
+    void printFilterResult() {
+        double threshold = receiveThreshold();
+        string isSpam, isSuccess;
+        int count = 0;
+        int success = 0;
+        float successRate = 0.0;
+        cout << "Num\tStatus\tthreshold\tSpamPercentage\tFilterResult\tSuccess or Fail" << endl;
+        for (auto& mail: targetMails) {
+            if(mail.rOfMail > threshold ) isSpam = "spam";
+            else isSpam = "ham";
+
+            if (mail.status == isSpam) {
+                isSuccess = "Success";
+                success++;
+            } else {
+                isSuccess = "Fail";
+            }
+            count++;
+            cout << mail.num << "\t" <<  mail.status << "\t" << threshold << "\t" << mail.rOfMail << "\t" << isSpam << "\t" << isSuccess << endl;
+            
+        }
+
+        successRate = success * 1.0 / count * 1.0;
+        cout <<"\nAccuracy for the threshold " << threshold << " : " << successRate << endl;
+
+    }
+
+
+};
+
+
 
 int main() {
 	TrainingMails trainingMails;
+    FilterManager filterManager;
+    int spamNum, hamNum, spamTest, hamTest, readTargetMails;
     cout << "Reading file..." << endl;
-    trainingMails.readEmailFile("../emails/train/dataset_ham_train100.csv");
+    spamNum = trainingMails.readEmailFile("../emails/train/dataset_spam_train100.csv");
+    hamNum = trainingMails.readEmailFile("../emails/train/dataset_ham_train100.csv");
+
+    cout <<  spamNum << " spam mails and " << hamNum << " ham mails have been read" << endl;
     
     cout << "Analyzing words..." << endl;
     trainingMails.analyzeWords();
 
-    cout << "Words analyzed: " << endl;
-    trainingMails.printAllWords();
+    cout << "Calculating probabilites..." << endl;
+    trainingMails.calculateProbabilities(spamNum, hamNum);
+
+   // cout << "Words analyzed: " << endl;
+    //trainingMails.printAllWords();
+
+    spamTest = filterManager.readTargetMails("../emails/test/dataset_spam_test20.csv");
+    hamTest = filterManager.readTargetMails("../emails/test/dataset_ham_test20.csv");
+
+    cout <<  spamTest << " spam target mails and " << hamTest << " ham target mails have been read" << endl;
+
+    readTargetMails = filterManager.filterMails(trainingMails.getMapAddress());
+    cout << readTargetMails << " mails have been read." << endl;
+
+    int quit;
+    while(1){
+        filterManager.printFilterResult();
+        printf("\nDo you want to end(0) or continue with new threshold(1)?");
+        cin >> quit;
+        if(quit == 0) break;
+    }
+    
+    cout << "Good bye!" << endl;
+
 	return 0;
 }
 
